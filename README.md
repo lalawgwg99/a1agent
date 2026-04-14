@@ -52,11 +52,11 @@ Most current AI tools are either:
 - Full marketplace
 - Complex node-based workflow canvas
 
-## Architecture (initial)
+## Architecture (current)
 
 - Frontend: Next.js + TypeScript
-- UI: shadcn/ui + dnd-kit
-- State: Zustand
+- UI: Tailwind CSS + dnd-kit
+- State: React `useState` (MVP)
 - Validation: Zod
 - Backend API: Next.js route handlers
 - Runtime adapters:
@@ -116,7 +116,11 @@ Implemented in this phase:
 - Hermes compile pipeline draft
 - Starter deck fixtures (3 decks)
 - `deck://v1` encode/decode utility
-- Project landing page showing compiled preview
+- Step 3 card builder UI:
+  - card library panel
+  - deck slots with drag/drop and reordering
+  - card property editor forms
+  - live compile summary panel
 
 ## Next steps (what I will build next)
 
@@ -172,4 +176,4 @@ Before opening PR:
 
 ---
 
-If you are the project owner, the immediate priority is now **Step 3 (card builder UI)**.
+If you are the project owner, the immediate priority is now **Step 4 (preview + compiler hardening)**.
