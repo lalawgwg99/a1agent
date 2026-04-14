@@ -31,6 +31,7 @@ const LIBRARY_PREFIX = "library:";
 const DECK_DROPPABLE_ID = "deck-dropzone";
 const MAX_CARDS_PER_DECK = 12;
 const LOCAL_DECKS_STORAGE_KEY = "a1agent.decks.v1";
+const APPLY_AUDIT_STORAGE_KEY = "a1agent.apply-audit.v1";
 
 type Notice = {
   tone: "info" | "success" | "error";
@@ -56,6 +57,17 @@ type ApplyErrorResponse = {
   error: string;
   details?: string[];
   warnings?: string[];
+};
+
+type ApplyAuditEntry = {
+  id: string;
+  timestamp: string;
+  deckId: string;
+  deckName: string;
+  status: "success" | "error";
+  message: string;
+  backupDir?: string;
+  warnings: string[];
 };
 
 function nowIso(): string {
@@ -199,6 +211,58 @@ function saveStoredDecks(entries: StoredDeckEntry[]): void {
   }
 
   window.localStorage.setItem(LOCAL_DECKS_STORAGE_KEY, JSON.stringify(entries));
+}
+
+function loadApplyAuditEntries(): ApplyAuditEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(APPLY_AUDIT_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const mapped: Array<ApplyAuditEntry | null> = parsed.map((item) => {
+        const candidate = item as Partial<ApplyAuditEntry>;
+        if (!candidate.id || !candidate.timestamp || !candidate.deckId || !candidate.deckName || !candidate.status || !candidate.message) {
+          return null;
+        }
+
+        const normalized: ApplyAuditEntry = {
+          id: String(candidate.id),
+          timestamp: String(candidate.timestamp),
+          deckId: String(candidate.deckId),
+          deckName: String(candidate.deckName),
+          status: candidate.status === "success" ? "success" : "error",
+          message: String(candidate.message),
+          backupDir: candidate.backupDir ? String(candidate.backupDir) : undefined,
+          warnings: Array.isArray(candidate.warnings) ? candidate.warnings.map((warning) => String(warning)) : [],
+        };
+
+        return normalized;
+      });
+
+    return mapped
+      .filter((entry): entry is ApplyAuditEntry => entry !== null)
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  } catch {
+    return [];
+  }
+}
+
+function saveApplyAuditEntries(entries: ApplyAuditEntry[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(APPLY_AUDIT_STORAGE_KEY, JSON.stringify(entries));
 }
 
 function LibraryCard({
@@ -403,6 +467,57 @@ function PreviewPanel({
   );
 }
 
+function ApplyAuditPanel({
+  entries,
+  onClear,
+}: {
+  entries: ApplyAuditEntry[];
+  onClear: () => void;
+}) {
+  return (
+    <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5d6876]">Apply Audit</h3>
+        <button
+          type="button"
+          className="rounded border border-[var(--line)] bg-white px-2 py-1 text-[11px] font-semibold disabled:opacity-40"
+          onClick={onClear}
+          disabled={entries.length === 0}
+        >
+          Clear
+        </button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="mt-3 text-sm text-[#5d6876]">No apply records yet.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {entries.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-[var(--line)] bg-white p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold">{entry.deckName}</p>
+                <span
+                  className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                    entry.status === "success" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                  }`}
+                >
+                  {entry.status}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-[#4b5868]">{new Date(entry.timestamp).toLocaleString()}</p>
+              <p className="mt-2 text-xs leading-5 text-[#26313f]">{entry.message}</p>
+              {entry.backupDir ? <p className="mt-1 break-all font-mono text-[11px] text-[#4b5868]">backup: {entry.backupDir}</p> : null}
+              {entry.warnings.length > 0 ? (
+                <p className="mt-1 text-[11px] text-amber-700">warnings: {entry.warnings.join(" | ")}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -417,6 +532,7 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
   const [loadDeckId, setLoadDeckId] = useState<string>("");
   const [deckCodeInput, setDeckCodeInput] = useState<string>("");
   const [isApplying, setIsApplying] = useState<boolean>(false);
+  const [applyAuditEntries, setApplyAuditEntries] = useState<ApplyAuditEntry[]>([]);
 
   const selectedCard = useMemo(() => getSelectedCard(deck, selectedCardId), [deck, selectedCardId]);
   const selectedCardIndex = useMemo(() => getCardIndex(deck, selectedCardId), [deck, selectedCardId]);
@@ -440,8 +556,31 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
     }
   }, []);
 
+  useEffect(() => {
+    setApplyAuditEntries(loadApplyAuditEntries());
+  }, []);
+
   function showNotice(tone: Notice["tone"], message: string): void {
     setNotice({ tone, message });
+  }
+
+  function appendApplyAuditEntry(entry: Omit<ApplyAuditEntry, "id" | "timestamp">): void {
+    const nextEntry: ApplyAuditEntry = {
+      ...entry,
+      id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      timestamp: nowIso(),
+    };
+    setApplyAuditEntries((previousEntries) => {
+      const nextEntries = [nextEntry, ...previousEntries].slice(0, 50);
+      saveApplyAuditEntries(nextEntries);
+      return nextEntries;
+    });
+  }
+
+  function handleClearApplyAudit(): void {
+    setApplyAuditEntries([]);
+    saveApplyAuditEntries([]);
+    showNotice("info", "Apply audit cleared.");
   }
 
   function addTemplateCard(templateId: string, overId: string | null): void {
@@ -617,13 +756,35 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
       const payload = (await response.json()) as ApplySuccessResponse | ApplyErrorResponse;
       if (!payload.ok) {
         const details = payload.details ? ` ${payload.details.join(" ")}` : "";
+        appendApplyAuditEntry({
+          deckId: deck.id,
+          deckName: deck.name,
+          status: "error",
+          message: `${payload.error}${details}`.trim(),
+          warnings: payload.warnings ?? [],
+        });
         showNotice("error", `${payload.error}${details}`.trim());
         return;
       }
 
       const warningSummary = payload.warnings.length > 0 ? ` Warnings: ${payload.warnings.join(" ")}` : "";
+      appendApplyAuditEntry({
+        deckId: deck.id,
+        deckName: deck.name,
+        status: "success",
+        message: payload.checkMessage,
+        backupDir: payload.backupDir,
+        warnings: payload.warnings,
+      });
       showNotice("success", `Applied to Hermes. Backup: ${payload.backupDir}.${warningSummary}`);
     } catch {
+      appendApplyAuditEntry({
+        deckId: deck.id,
+        deckName: deck.name,
+        status: "error",
+        message: "Apply request failed. Check local server and Hermes setup.",
+        warnings: [],
+      });
       showNotice("error", "Apply request failed. Check local server and Hermes setup.");
     } finally {
       setIsApplying(false);
@@ -781,6 +942,7 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
             output={diagnostics.output}
             soulMarkdown={diagnostics.soulMarkdown}
           />
+          <ApplyAuditPanel entries={applyAuditEntries} onClear={handleClearApplyAudit} />
         </section>
       </div>
     </DndContext>

@@ -136,6 +136,10 @@ Implemented in this phase:
   - backup existing `~/.hermes/config.yaml` and `SOUL.md`
   - apply + optional `hermes config check`
   - automatic rollback on apply/check failure
+- Step 7 automated quality + apply audit:
+  - `vitest` unit tests for compile/deck compatibility/share-code
+  - GitHub Actions CI for lint + test + build
+  - in-app apply audit panel with local history
 
 ## Next steps (what I will build next)
 
@@ -191,4 +195,4 @@ Before opening PR:
 
 ---
 
-If you are the project owner, the immediate priority is now **Step 7 (automated tests + CI + apply audit UI)**.
+If you are the project owner, the immediate priority is now **Step 8 (end-to-end tests + Hermes dry-run + UX polish)**.
