@@ -143,41 +143,12 @@ Implemented in this phase:
 
 ## Next steps (what I will build next)
 
-### Step 1: project scaffold
+### Step 8: production hardening
 
-- Initialize Next.js + TypeScript project
-- Add ESLint/Prettier and basic CI check
-- Add base layout and theme tokens
-
-### Step 2: core domain types
-
-- Implement Zod schemas for all card types and deck
-- Add compile pipeline interfaces
-- Add fixtures for 3 starter decks
-
-### Step 3: card builder UI
-
-- Implement card library panel
-- Implement deck slots with drag/drop
-- Implement card property editor forms
-
-### Step 4: preview + compiler
-
-- Build live effective preview panel
-- Compile deck to Hermes `config.yaml` + `SOUL.md`
-- Add validation errors with actionable messages
-
-### Step 5: persistence + sharing
-
-- Local save/load decks
-- Export/import `deck://v1` share code
-- Add compatibility/version checks
-
-### Step 6: safe apply flow
-
-- Hermes config backup before apply
-- Apply + verify
-- Rollback on failure
+- Add end-to-end tests for key user flows
+- Add Hermes dry-run mode before real apply
+- Improve mobile layout polish and error UX copy
+- Add audit export/download for support and debugging
 
 ## Definition of done for v0.1
 
