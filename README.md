@@ -121,6 +121,12 @@ Implemented in this phase:
   - deck slots with drag/drop and reordering
   - card property editor forms
   - live compile summary panel
+- Step 4 preview + compiler hardening:
+  - actionable compile diagnostics (errors/warnings)
+  - live effective prompt preview
+  - `config.yaml` preview output
+  - `SOUL.md` preview output
+  - mobile-friendly add/reorder controls
 
 ## Next steps (what I will build next)
 
@@ -176,4 +182,4 @@ Before opening PR:
 
 ---
 
-If you are the project owner, the immediate priority is now **Step 4 (preview + compiler hardening)**.
+If you are the project owner, the immediate priority is now **Step 5 (persistence + sharing UX)**.
