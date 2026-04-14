@@ -87,7 +87,7 @@ Most current AI tools are either:
 - Guardrails: dangerous tool modes require explicit confirmation.
 - Fast iteration: one-click test and compare decks.
 
-## Quick start (planned)
+## Quick start
 
 ```bash
 # 1) install
@@ -98,11 +98,25 @@ pnpm dev
 
 # 3) open app
 # http://localhost:3000
+
+# optional: type/lint check
+pnpm lint
+
+# optional: production build
+pnpm build
 ```
 
 ## Repo status
 
-Current status: **bootstrapping** (this repository was initially empty).
+Current status: **bootstrapped and runnable**.
+
+Implemented in this phase:
+- Next.js + TypeScript + Tailwind app scaffold
+- Core card/deck schemas with Zod
+- Hermes compile pipeline draft
+- Starter deck fixtures (3 decks)
+- `deck://v1` encode/decode utility
+- Project landing page showing compiled preview
 
 ## Next steps (what I will build next)
 
@@ -158,4 +172,4 @@ Before opening PR:
 
 ---
 
-If you are the project owner, the immediate priority is **Step 1 + Step 2** to make the app executable as soon as possible.
+If you are the project owner, the immediate priority is now **Step 3 (card builder UI)**.
