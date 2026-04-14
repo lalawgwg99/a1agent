@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -20,15 +20,43 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { stringify } from "yaml";
-import type { Card, Deck } from "@/domain/cards";
-import { compileDeckWithDiagnostics, type DeckCompileDiagnostics } from "@/domain/compile";
+import type { CompileOutput, Card, Deck } from "@/domain/cards";
+import { compileDeckWithDiagnostics } from "@/domain/compile";
 import { cardTemplates } from "@/domain/library";
-import { encodeDeck } from "@/lib/deck-code";
+import { checkDeckCompatibility } from "@/lib/compatibility";
+import { decodeDeck, encodeDeck } from "@/lib/deck-code";
 import { CardEditor } from "@/features/builder/card-editor";
 
 const LIBRARY_PREFIX = "library:";
 const DECK_DROPPABLE_ID = "deck-dropzone";
 const MAX_CARDS_PER_DECK = 12;
+const LOCAL_DECKS_STORAGE_KEY = "a1agent.decks.v1";
+
+type Notice = {
+  tone: "info" | "success" | "error";
+  message: string;
+};
+
+type StoredDeckEntry = {
+  savedAt: string;
+  deck: Deck;
+};
+
+type ApplySuccessResponse = {
+  ok: true;
+  backupDir: string;
+  configPath: string;
+  soulPath: string;
+  checkMessage: string;
+  warnings: string[];
+};
+
+type ApplyErrorResponse = {
+  ok: false;
+  error: string;
+  details?: string[];
+  warnings?: string[];
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -119,6 +147,58 @@ function copyDeckCode(deck: Deck): Promise<void> {
   }
 
   return navigator.clipboard.writeText(code);
+}
+
+function mergeMessages(messages: string[]): string[] {
+  return Array.from(new Set(messages));
+}
+
+function loadStoredDecks(): StoredDeckEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(LOCAL_DECKS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => {
+        const candidate = item as Partial<StoredDeckEntry>;
+        if (!candidate.deck || !candidate.savedAt) {
+          return null;
+        }
+
+        try {
+          const validDeck = decodeDeck(encodeDeck(candidate.deck as Deck));
+          return {
+            savedAt: String(candidate.savedAt),
+            deck: validDeck,
+          } satisfies StoredDeckEntry;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is StoredDeckEntry => item !== null)
+      .sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredDecks(entries: StoredDeckEntry[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(LOCAL_DECKS_STORAGE_KEY, JSON.stringify(entries));
 }
 
 function LibraryCard({
@@ -254,46 +334,56 @@ function DeckDropzone({ children }: { children: ReactNode }) {
   );
 }
 
-function PreviewPanel({ diagnostics }: { diagnostics: DeckCompileDiagnostics }) {
+function PreviewPanel({
+  errors,
+  warnings,
+  output,
+  soulMarkdown,
+}: {
+  errors: string[];
+  warnings: string[];
+  output: CompileOutput | null;
+  soulMarkdown: string | null;
+}) {
   const configYaml = useMemo(() => {
-    if (!diagnostics.output) {
+    if (!output) {
       return "";
     }
 
-    return stringify(diagnostics.output.configPatch);
-  }, [diagnostics.output]);
+    return stringify(output.configPatch);
+  }, [output]);
 
   return (
     <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#5d6876]">Compile Preview</h3>
 
-      {diagnostics.errors.length > 0 ? (
+      {errors.length > 0 ? (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
           <p className="font-semibold">Errors</p>
           <ul className="mt-2 space-y-1">
-            {diagnostics.errors.map((error) => (
+            {errors.map((error) => (
               <li key={error}>- {error}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {diagnostics.warnings.length > 0 ? (
+      {warnings.length > 0 ? (
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <p className="font-semibold">Warnings</p>
           <ul className="mt-2 space-y-1">
-            {diagnostics.warnings.map((warning) => (
+            {warnings.map((warning) => (
               <li key={warning}>- {warning}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {diagnostics.output ? (
+      {output ? (
         <div className="mt-4 space-y-3">
           <details open>
             <summary className="cursor-pointer text-sm font-semibold">Effective Prompt</summary>
-            <pre className="code-panel mt-2 overflow-auto rounded-xl p-3 text-xs leading-6">{diagnostics.output.effectivePrompt}</pre>
+            <pre className="code-panel mt-2 overflow-auto rounded-xl p-3 text-xs leading-6">{output.effectivePrompt}</pre>
           </details>
 
           <details>
@@ -303,7 +393,7 @@ function PreviewPanel({ diagnostics }: { diagnostics: DeckCompileDiagnostics }) 
 
           <details>
             <summary className="cursor-pointer text-sm font-semibold">SOUL.md</summary>
-            <pre className="code-panel mt-2 overflow-auto rounded-xl p-3 text-xs leading-6">{diagnostics.soulMarkdown}</pre>
+            <pre className="code-panel mt-2 overflow-auto rounded-xl p-3 text-xs leading-6">{soulMarkdown}</pre>
           </details>
         </div>
       ) : (
@@ -322,21 +412,47 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
   const [deck, setDeck] = useState<Deck>(initialDeck);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(deck.cards[0]?.id ?? null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string>("");
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [savedDecks, setSavedDecks] = useState<StoredDeckEntry[]>([]);
+  const [loadDeckId, setLoadDeckId] = useState<string>("");
+  const [deckCodeInput, setDeckCodeInput] = useState<string>("");
+  const [isApplying, setIsApplying] = useState<boolean>(false);
 
   const selectedCard = useMemo(() => getSelectedCard(deck, selectedCardId), [deck, selectedCardId]);
   const selectedCardIndex = useMemo(() => getCardIndex(deck, selectedCardId), [deck, selectedCardId]);
-  const compileDiagnostics = useMemo(() => compileDeckWithDiagnostics(deck), [deck]);
+  const diagnostics = useMemo(() => compileDeckWithDiagnostics(deck), [deck]);
+  const compatibility = useMemo(() => checkDeckCompatibility(deck), [deck]);
+  const allErrors = useMemo(() => mergeMessages([...compatibility.errors, ...diagnostics.errors]), [compatibility.errors, diagnostics.errors]);
+  const allWarnings = useMemo(
+    () => mergeMessages([...compatibility.warnings, ...diagnostics.warnings]),
+    [compatibility.warnings, diagnostics.warnings],
+  );
+
+  const canMoveUp = selectedCardIndex > 0;
+  const canMoveDown = selectedCardIndex !== -1 && selectedCardIndex < deck.cards.length - 1;
+  const canApply = allErrors.length === 0 && diagnostics.output !== null && diagnostics.soulMarkdown !== null && !isApplying;
+
+  useEffect(() => {
+    const entries = loadStoredDecks();
+    setSavedDecks(entries);
+    if (entries.length > 0) {
+      setLoadDeckId(entries[0].deck.id);
+    }
+  }, []);
+
+  function showNotice(tone: Notice["tone"], message: string): void {
+    setNotice({ tone, message });
+  }
 
   function addTemplateCard(templateId: string, overId: string | null): void {
     if (deck.cards.length >= MAX_CARDS_PER_DECK) {
-      setNotice(`Deck limit reached (${MAX_CARDS_PER_DECK} cards).`);
+      showNotice("error", `Deck limit reached (${MAX_CARDS_PER_DECK} cards).`);
       return;
     }
 
     const template = cardTemplates.find((item) => item.templateId === templateId);
     if (!template) {
-      setNotice("Template not found.");
+      showNotice("error", "Template not found.");
       return;
     }
 
@@ -345,12 +461,12 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
     const nextDeck = insertDeckCard(deck, nextCard, insertIndex);
     setDeck(nextDeck);
     setSelectedCardId(nextCard.id);
-    setNotice(`Added ${template.label}.`);
+    showNotice("success", `Added ${template.label}.`);
   }
 
   function handleDragStart(event: DragStartEvent): void {
     setActiveDragId(String(event.active.id));
-    setNotice("");
+    setNotice(null);
   }
 
   function handleDragEnd(event: DragEndEvent): void {
@@ -400,7 +516,7 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
 
       return nextDeck.cards[0]?.id ?? null;
     });
-    setNotice("Card removed.");
+    showNotice("info", "Card removed.");
   }
 
   function handleMoveCard(cardId: string, direction: -1 | 1): void {
@@ -415,17 +531,111 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
     setDeck((prevDeck) => moveCard(prevDeck, selectedCardId, direction));
   }
 
+  function handleSaveLocalDeck(): void {
+    const nextEntry: StoredDeckEntry = {
+      savedAt: nowIso(),
+      deck,
+    };
+
+    const nextEntries = [nextEntry, ...savedDecks.filter((entry) => entry.deck.id !== deck.id)].slice(0, 30);
+    setSavedDecks(nextEntries);
+    saveStoredDecks(nextEntries);
+    setLoadDeckId(deck.id);
+    showNotice("success", "Deck saved to local storage.");
+  }
+
+  function handleLoadLocalDeck(): void {
+    const entry = savedDecks.find((item) => item.deck.id === loadDeckId);
+    if (!entry) {
+      showNotice("error", "Select a saved deck first.");
+      return;
+    }
+
+    const restoredDeck: Deck = {
+      ...entry.deck,
+      updatedAt: nowIso(),
+    };
+    setDeck(restoredDeck);
+    setSelectedCardId(restoredDeck.cards[0]?.id ?? null);
+    showNotice("success", `Loaded local deck: ${restoredDeck.name}.`);
+  }
+
   async function handleCopyDeckCode(): Promise<void> {
     try {
       await copyDeckCode(deck);
-      setNotice("Deck code copied to clipboard.");
+      showNotice("success", "Deck code copied to clipboard.");
     } catch {
-      setNotice("Clipboard unavailable. Use compatible browser context.");
+      showNotice("error", "Clipboard unavailable. Use compatible browser context.");
     }
   }
 
-  const canMoveUp = selectedCardIndex > 0;
-  const canMoveDown = selectedCardIndex !== -1 && selectedCardIndex < deck.cards.length - 1;
+  function handleImportDeckCode(): void {
+    try {
+      const importedDeck = decodeDeck(deckCodeInput.trim());
+      const report = checkDeckCompatibility(importedDeck);
+      if (report.errors.length > 0) {
+        showNotice("error", report.errors.join(" "));
+        return;
+      }
+
+      setDeck({
+        ...importedDeck,
+        updatedAt: nowIso(),
+      });
+      setSelectedCardId(importedDeck.cards[0]?.id ?? null);
+      setDeckCodeInput("");
+
+      if (report.warnings.length > 0) {
+        showNotice("info", `Deck imported with warnings: ${report.warnings.join(" ")}`);
+        return;
+      }
+
+      showNotice("success", `Deck imported: ${importedDeck.name}.`);
+    } catch {
+      showNotice("error", "Invalid deck code. Check `deck://v1/...` format.");
+    }
+  }
+
+  async function handleApplyHermes(): Promise<void> {
+    if (!canApply) {
+      showNotice("error", "Resolve compile errors before applying Hermes config.");
+      return;
+    }
+
+    setIsApplying(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/hermes/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ deck }),
+      });
+
+      const payload = (await response.json()) as ApplySuccessResponse | ApplyErrorResponse;
+      if (!payload.ok) {
+        const details = payload.details ? ` ${payload.details.join(" ")}` : "";
+        showNotice("error", `${payload.error}${details}`.trim());
+        return;
+      }
+
+      const warningSummary = payload.warnings.length > 0 ? ` Warnings: ${payload.warnings.join(" ")}` : "";
+      showNotice("success", `Applied to Hermes. Backup: ${payload.backupDir}.${warningSummary}`);
+    } catch {
+      showNotice("error", "Apply request failed. Check local server and Hermes setup.");
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  const noticeClass =
+    notice?.tone === "success"
+      ? "text-emerald-700"
+      : notice?.tone === "error"
+        ? "text-red-700"
+        : "text-[var(--brand)]";
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -454,12 +664,69 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
                 {deck.cards.length} / {MAX_CARDS_PER_DECK} cards
               </p>
             </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               className="rounded-lg bg-[var(--brand)] px-3 py-2 text-xs font-semibold text-white"
               onClick={handleCopyDeckCode}
             >
               Copy Deck Code
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+              onClick={handleSaveLocalDeck}
+            >
+              Save Local
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold disabled:opacity-40"
+              onClick={handleApplyHermes}
+              disabled={!canApply}
+            >
+              {isApplying ? "Applying..." : "Apply Hermes"}
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <select
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs"
+              value={loadDeckId}
+              onChange={(event) => setLoadDeckId(event.target.value)}
+            >
+              <option value="">Select saved deck</option>
+              {savedDecks.map((entry) => (
+                <option key={`${entry.deck.id}-${entry.savedAt}`} value={entry.deck.id}>
+                  {entry.deck.name} ({new Date(entry.savedAt).toLocaleString()})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+              onClick={handleLoadLocalDeck}
+            >
+              Load Local
+            </button>
+          </div>
+
+          <div className="mt-3">
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[#5d6876]">Import deck code</label>
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-lg border border-[var(--line)] bg-white p-3 font-mono text-xs"
+              placeholder="deck://v1/..."
+              value={deckCodeInput}
+              onChange={(event) => setDeckCodeInput(event.target.value)}
+            />
+            <button
+              type="button"
+              className="mt-2 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold"
+              onClick={handleImportDeckCode}
+            >
+              Import Code
             </button>
           </div>
 
@@ -502,13 +769,18 @@ export function DeckBuilder({ initialDeck }: { initialDeck: Deck }) {
             </button>
           </div>
 
-          {notice ? <p className="mt-3 text-xs font-medium text-[var(--brand)]">{notice}</p> : null}
+          {notice ? <p className={`mt-3 text-xs font-medium ${noticeClass}`}>{notice.message}</p> : null}
           {activeDragId ? <p className="mt-2 text-xs text-[#5d6876]">Dragging: {activeDragId}</p> : null}
         </section>
 
         <section className="space-y-4 xl:max-h-[calc(100vh-180px)] xl:overflow-auto xl:pr-1">
           <CardEditor card={selectedCard} onCardChange={handleCardChange} onCardRemove={handleCardRemove} />
-          <PreviewPanel diagnostics={compileDiagnostics} />
+          <PreviewPanel
+            errors={allErrors}
+            warnings={allWarnings}
+            output={diagnostics.output}
+            soulMarkdown={diagnostics.soulMarkdown}
+          />
         </section>
       </div>
     </DndContext>

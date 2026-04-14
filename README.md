@@ -127,6 +127,15 @@ Implemented in this phase:
   - `config.yaml` preview output
   - `SOUL.md` preview output
   - mobile-friendly add/reorder controls
+- Step 5 persistence + sharing UX:
+  - local save/load deck states
+  - import from `deck://v1` share code
+  - compatibility checks before import/apply
+- Step 6 safe apply flow:
+  - server route to apply Hermes config
+  - backup existing `~/.hermes/config.yaml` and `SOUL.md`
+  - apply + optional `hermes config check`
+  - automatic rollback on apply/check failure
 
 ## Next steps (what I will build next)
 
@@ -182,4 +191,4 @@ Before opening PR:
 
 ---
 
-If you are the project owner, the immediate priority is now **Step 5 (persistence + sharing UX)**.
+If you are the project owner, the immediate priority is now **Step 7 (automated tests + CI + apply audit UI)**.
